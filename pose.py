@@ -3,6 +3,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import cv2
 import numpy as np
+import pandas as pd
 
 class PoseEstimator:
     def __init__(self, model_path="yolov8s-pose.pt"):
@@ -14,10 +15,29 @@ class PoseEstimator:
             "Left Wrist", "Right Wrist", "Left Hip", "Right Hip",
             "Left Knee", "Right Knee", "Left Ankle", "Right Ankle"
         ]
+        self.features_columns = ["nose, nose_x, nose_y, nose_conf",
+                                 "left_eye, left_eye_x, left_eye_y, left_eye_conf",
+                                 "right_eye, right_eye_x, right_eye_y, right_eye_conf",
+                                 "left_ear, left_ear_x, left_ear_y, left_ear_conf",
+                                 "right_ear, right_ear_x, right_ear_y, right_ear_conf",
+                                 "left_shoulder, left_shoulder_x, left_shoulder_y, left_shoulder_conf",
+                                 "right_shoulder, right_shoulder_x, right_shoulder_y, right_shoulder_conf",
+                                 "left_elbow, left_elbow_x, left_elbow_y, left_elbow_conf",
+                                 "right_elbow, right_elbow_x, right_elbow_y, right_elbow_conf",
+                                 "left_wrist, left_wrist_x, left_wrist_y, left_wrist_conf",
+                                 "right_wrist, right_wrist_x, right_wrist_y, right_wrist_conf",
+                                 "left_hip, left_hip_x, left_hip_y, left_hip_conf",
+                                 "right_hip, right_hip_x, right_hip_y, right_hip_conf",
+                                 "left_knee, left_knee_x, left_knee_y, left_knee_conf",
+                                 "right_knee, right_knee_x, right_knee_y, right_knee_conf",
+                                 "left_ankle, left_ankle_x, left_ankle_y, left_ankle_conf",
+                                 "right_ankle, right_ankle_x, right_ankle_y, right_ankle_conf"]
+        
+        self.results_dict = None
 
     def predict(self, image_path):
         self.image_path = image_path
-        self.results = self.model.predict(image_path)
+        self.results = self.model.predict(image_path, verbose=False)
 
     def show_image(self):
         for r in self.results:
@@ -47,22 +67,16 @@ class PoseEstimator:
 
     def keypoints_to_dict(self):
         """
-        Returns a list of dictionaries for each detected person:
-        [
-            {
-                "Nose": (x_norm, y_norm, conf),
-                "Left Eye": (x_norm, y_norm, conf),
-                ...
-            },
-            ...
-        ]
+        Returns a flattened dictionary for the person with the highest total keypoint confidence.
         Coordinates are normalized relative to the person bounding box.
         """
-        persons = []
+        best_person_dict = None
+        best_conf_sum = -1  # track highest confidence sum
+
         for r in self.results:
-            kpts_xy = r.keypoints.xy.cpu().numpy()      # [N,17,2]
-            kpts_conf = r.keypoints.conf.cpu().numpy()  # [N,17]
-            boxes = r.boxes.xyxy.cpu().numpy()          # [N,4]
+            kpts_xy = r.keypoints.xy.cpu().numpy()      # [N, 17, 2]
+            kpts_conf = r.keypoints.conf.cpu().numpy()  # [N, 17]
+            boxes = r.boxes.xyxy.cpu().numpy()          # [N, 4]
 
             N = kpts_xy.shape[0]  # number of people detected
 
@@ -70,14 +84,28 @@ class PoseEstimator:
                 x1, y1, x2, y2 = boxes[i]
                 w, h = x2 - x1, y2 - y1
 
+                # Flatten person keypoints into a single dictionary
                 person_dict = {}
+                total_conf = 0
+
                 for j, label in enumerate(self.keypoint_labels):
+                    key = label.lower().replace(" ", "_")
                     x, y = kpts_xy[i, j]
                     conf = kpts_conf[i, j]
+                    total_conf += conf
+
                     # Normalize relative to bounding box
                     x_norm = (x - x1) / w
                     y_norm = (y - y1) / h
-                    person_dict[label] = (float(x_norm), float(y_norm), float(conf))
-                persons.append(person_dict)
 
-        return persons
+                    person_dict[f"{key}_x"] = float(x_norm)
+                    person_dict[f"{key}_y"] = float(y_norm)
+                    person_dict[f"{key}_conf"] = float(conf)
+
+                # Keep only the person with the highest total confidence
+                if total_conf > best_conf_sum:
+                    best_conf_sum = total_conf
+                    best_person_dict = person_dict
+
+        self.results_dict = best_person_dict
+        return best_person_dict
