@@ -15,24 +15,7 @@ class PoseEstimator:
             "Left Wrist", "Right Wrist", "Left Hip", "Right Hip",
             "Left Knee", "Right Knee", "Left Ankle", "Right Ankle"
         ]
-        self.features_columns = ["nose, nose_x, nose_y, nose_conf",
-                                 "left_eye, left_eye_x, left_eye_y, left_eye_conf",
-                                 "right_eye, right_eye_x, right_eye_y, right_eye_conf",
-                                 "left_ear, left_ear_x, left_ear_y, left_ear_conf",
-                                 "right_ear, right_ear_x, right_ear_y, right_ear_conf",
-                                 "left_shoulder, left_shoulder_x, left_shoulder_y, left_shoulder_conf",
-                                 "right_shoulder, right_shoulder_x, right_shoulder_y, right_shoulder_conf",
-                                 "left_elbow, left_elbow_x, left_elbow_y, left_elbow_conf",
-                                 "right_elbow, right_elbow_x, right_elbow_y, right_elbow_conf",
-                                 "left_wrist, left_wrist_x, left_wrist_y, left_wrist_conf",
-                                 "right_wrist, right_wrist_x, right_wrist_y, right_wrist_conf",
-                                 "left_hip, left_hip_x, left_hip_y, left_hip_conf",
-                                 "right_hip, right_hip_x, right_hip_y, right_hip_conf",
-                                 "left_knee, left_knee_x, left_knee_y, left_knee_conf",
-                                 "right_knee, right_knee_x, right_knee_y, right_knee_conf",
-                                 "left_ankle, left_ankle_x, left_ankle_y, left_ankle_conf",
-                                 "right_ankle, right_ankle_x, right_ankle_y, right_ankle_conf"]
-        
+
         self.results_dict = None
 
     def predict(self, image_path):
@@ -109,3 +92,4 @@ class PoseEstimator:
 
         self.results_dict = best_person_dict
         return best_person_dict
+
