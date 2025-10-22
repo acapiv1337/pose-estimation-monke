@@ -1,0 +1,24 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+    container_name: vue-frontend
+    ports:
+      - "8080:80"             # Serve built Vue app via Nginx
+    depends_on:
+      - backend
+    networks:
+      - ai_network
+
+  backend:
+    build:
+      context: ./backend
+    container_name: fastapi-backend
+    ports:
+      - "8000:8000"           # FastAPI runs here
+    networks:
+      - ai_network
+
+networks:
+  ai_network:
+    driver: bridge

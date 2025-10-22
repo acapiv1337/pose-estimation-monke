@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 train test/sendiri.tar
 train test/sendiri.zip
+/model
