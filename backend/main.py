@@ -1,13 +1,11 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from PIL import Image
+import cv2, base64, numpy as np
+from ultralytics import YOLO
 import io
-import numpy as np
-# import torch
+from PIL import Image
 
 app = FastAPI()
-
-# Allow Vue frontend to talk to this backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,48 +14,37 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ===========================
-# Load your model (example)
-# ===========================
-# Replace this with your actual model loading logic
-# e.g. model = torch.load("model.pt", map_location="cpu")
-# model.eval()
-model = None  # Placeholder for now
+pose_model = YOLO("yolov8s-pose.pt")
+processing = False  # global flag to skip frames
 
-@app.on_event("startup")
-def load_model():
-    global model
-    print("🔹 Loading model...")
-    # Example: load YOLOv5 or any other PyTorch model
-    # model = torch.hub.load('ultralytics/yolov5', 'custom', path='model.pt', force_reload=False)
-    model = "dummy_model"
-    print("✅ Model loaded successfully!")
+@app.websocket("/ws/pose")
+async def websocket_pose(websocket: WebSocket):
+    global processing
+    await websocket.accept()
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if processing:
+                continue  # skip if still processing previous frame
+            processing = True
 
-# ===========================
-# Predict endpoint
-# ===========================
-@app.post("/predict")
-async def predict(frame: UploadFile = File(...)):
-    # Read the image bytes
-    image_bytes = await frame.read()
-    image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            # Decode base64 image from frontend
+            img_data = data["image"].split(",")[1]
+            img_bytes = base64.b64decode(img_data)
+            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+            frame = np.array(img)
 
-    # Convert to numpy array (for processing)
-    img_np = np.array(image)
+            # Run pose prediction
+            results = pose_model.predict(frame, verbose=False)
+            annotated = results[0].plot()
 
-    # Example placeholder prediction logic
-    # Replace this with your model inference code
-    # Example: results = model(img_np)
-    # Here, we’ll just simulate a result
-    dummy_result = {
-        "status": "success",
-        "prediction": "Standing",
-        "confidence": 0.92
-    }
+            # Encode back to base64
+            _, buffer = cv2.imencode(".jpg", annotated)
+            encoded = base64.b64encode(buffer).decode("utf-8")
+            await websocket.send_json({"image": encoded})
 
-    return dummy_result
-
-
-@app.get("/")
-def root():
-    return {"message": "Backend running successfully 🚀"}
+            processing = False
+    except Exception as e:
+        print("WebSocket closed:", e)
+    finally:
+        await websocket.close()
