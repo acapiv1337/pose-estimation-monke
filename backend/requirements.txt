@@ -1,8 +1,8 @@
 fastapi
 uvicorn[standard]
-pillow
 numpy
 opencv-python
-python-multipart
 ultralytics
 xgboost
+aiortc
+aiohttp

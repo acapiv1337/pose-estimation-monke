@@ -1,11 +1,18 @@
-from fastapi import FastAPI, WebSocket
+"""
+WebRTC-based pose classification server.
+Receives H.264/VP8 video stream via WebRTC, runs YOLO pose + XGBoost classification,
+sends results back via DataChannel.
+"""
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-import cv2, base64, numpy as np
+import cv2
+import numpy as np
 from ultralytics import YOLO
 import xgboost as xgb
-import io
-from PIL import Image
+from aiortc import RTCPeerConnection, RTCSessionDescription
+import asyncio
+import json
 from pathlib import Path
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -27,7 +34,7 @@ xgb_model.load_model(str(Path(__file__).parent / "xgb_model.json"))
 
 CLASS_NAMES = ["heart-attack", "idea", "stand", "think"]
 
-# 17 COCO keypoint labels (same order as features)
+# 17 COCO keypoint labels
 KEYPOINT_LABELS = [
     "nose", "left_eye", "right_eye", "left_ear", "right_ear",
     "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
@@ -35,7 +42,7 @@ KEYPOINT_LABELS = [
     "left_knee", "right_knee", "left_ankle", "right_ankle"
 ]
 
-processing = False  # global flag to skip frames
+pcs = set()
 
 
 def extract_features(results):
@@ -47,9 +54,9 @@ def extract_features(results):
         if r.keypoints is None or len(r.keypoints.xy) == 0:
             continue
 
-        kpts_xy = r.keypoints.xy.cpu().numpy()      # [N, 17, 2]
-        kpts_conf = r.keypoints.conf.cpu().numpy()   # [N, 17]
-        boxes = r.boxes.xyxy.cpu().numpy()           # [N, 4]
+        kpts_xy = r.keypoints.xy.cpu().numpy()
+        kpts_conf = r.keypoints.conf.cpu().numpy()
+        boxes = r.boxes.xyxy.cpu().numpy()
 
         for p in range(len(kpts_xy)):
             x1, y1, x2, y2 = boxes[p]
@@ -75,50 +82,96 @@ def extract_features(results):
     return best_feats
 
 
-@app.websocket("/ws/pose")
-async def websocket_pose(websocket: WebSocket):
-    global processing
-    await websocket.accept()
+async def process_video(track, channel, pc):
+    """Process incoming video frames: YOLO pose + XGBoost classification."""
+    loop = asyncio.get_event_loop()
+    frame_count = 0
+    INFERENCE_INTERVAL = 3  # run inference every N frames (~10 FPS at 30 FPS input)
+
+    while True:
+        try:
+            frame = await asyncio.wait_for(track.recv(), timeout=5.0)
+        except (asyncio.TimeoutError, Exception):
+            break
+
+        frame_count += 1
+        if frame_count % INFERENCE_INTERVAL != 0:
+            continue
+
+        # aiortc/av gives BGR24 directly — OpenCV-compatible
+        img = frame.to_ndarray(format="bgr24")
+
+        # Run YOLO pose in thread pool (blocking call)
+        results = await loop.run_in_executor(
+            None, lambda: pose_model.predict(img, verbose=False)
+        )
+
+        # Extract features and classify
+        feats = extract_features(results)
+        if feats is not None:
+            proba = xgb_model.predict_proba(feats[np.newaxis, ...])[0]
+            pred_id = int(np.argmax(proba))
+            conf = float(proba[pred_id])
+            cls = CLASS_NAMES[pred_id]
+
+            # Send result via DataChannel
+            if channel.readyState == "open":
+                try:
+                    channel.send(json.dumps({
+                        "class": cls,
+                        "confidence": round(conf, 3),
+                        "class_id": pred_id,
+                    }))
+                except Exception:
+                    pass
+
+    # Cleanup
+    pcs.discard(pc)
     try:
-        while True:
-            data = await websocket.receive_json()
-            if processing:
-                continue
-            processing = True
+        await pc.close()
+    except Exception:
+        pass
 
-            # Decode base64 image from frontend
-            img_data = data["image"].split(",")[1]
-            img_bytes = base64.b64decode(img_data)
-            img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-            frame = np.array(img)
 
-            # Run pose prediction (internal — for feature extraction only)
-            results = pose_model.predict(frame, verbose=False)
+@app.post("/offer")
+async def offer(request: Request):
+    """Receive WebRTC SDP offer from browser, return answer."""
+    params = await request.json()
+    offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
-            # Run XGBoost classification
-            feats = extract_features(results)
-            predicted_class = None
-            confidence = 0.0
-            if feats is not None:
-                proba = xgb_model.predict_proba(feats)[0]
-                pred_id = int(np.argmax(proba))
-                confidence = float(proba[pred_id])
-                predicted_class = CLASS_NAMES[pred_id]
+    pc = RTCPeerConnection()
+    pcs.add(pc)
 
-            # Encode original frame (no overlay, no skeleton, no label)
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            _, buffer = cv2.imencode(".jpg", frame_bgr)
-            encoded = base64.b64encode(buffer).decode("utf-8")
+    # Create DataChannel for sending classification results
+    channel = pc.createDataChannel("classification")
 
-            response = {"image": encoded}
-            if predicted_class:
-                response["class"] = predicted_class
-                response["confidence"] = confidence
+    @pc.on("connectionstatechange")
+    async def on_connectionstatechange():
+        if pc.connectionState in ["failed", "closed"]:
+            pcs.discard(pc)
+            try:
+                await pc.close()
+            except Exception:
+                pass
 
-            await websocket.send_json(response)
-            processing = False
-    except Exception as e:
-        print("WebSocket closed:", e)
-    finally:
-        processing = False
-        await websocket.close()
+    @pc.on("track")
+    async def on_track(track):
+        if track.kind == "video":
+            asyncio.ensure_future(process_video(track, channel, pc))
+
+    await pc.setRemoteDescription(offer)
+    answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+
+    return {
+        "sdp": pc.localDescription.sdp,
+        "type": pc.localDescription.type,
+    }
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    """Clean up all peer connections on shutdown."""
+    coros = [pc.close() for pc in pcs]
+    await asyncio.gather(*coros, return_exceptions=True)
+    pcs.clear()

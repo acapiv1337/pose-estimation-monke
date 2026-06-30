@@ -1,53 +1,51 @@
 <template>
   <div class="camera-predict">
-    <!-- Hidden video capture -->
-    <video ref="video" autoplay playsinline style="display:none"></video>
-    <canvas ref="canvas" width="320" height="240" style="display:none"></canvas>
-
     <div class="main-layout">
-      <!-- Left: Webcam + Controls -->
+      <!-- Left: Webcam -->
       <div class="panel">
         <h2>Live Webcam</h2>
         <div class="video-container">
           <div v-if="!streaming" class="placeholder">
             <span>Press Start to begin</span>
           </div>
-          <img v-if="frame" :src="'data:image/jpeg;base64,' + frame" class="pose-feed" />
+          <div v-if="streaming" class="video-wrapper">
+            <video ref="video" autoplay playsinline muted class="webcam-feed"></video>
+            <div class="class-overlay" v-if="predictedClass">
+              <span class="overlay-badge" :class="'badge-' + predictedClass">
+                {{ classIcon }} {{ predictedClass }}
+              </span>
+              <span class="overlay-conf">{{ (confidence * 100).toFixed(0) }}%</span>
+            </div>
+          </div>
         </div>
-
         <div class="controls">
           <button @click="toggleStream" :class="['btn', streaming ? 'btn-stop' : 'btn-start']">
             {{ streaming ? '⏹ Stop Stream' : '▶ Start Stream' }}
           </button>
         </div>
         <p v-if="error" class="error">{{ error }}</p>
-        <p v-if="streaming" class="status">Streaming live...</p>
       </div>
 
       <!-- Right: Classification Result -->
       <div class="panel">
         <h2>Pose Classification</h2>
-
         <div v-if="predictedClass" class="result-card">
           <div class="class-badge" :class="'class-' + predictedClass">
             <span class="class-icon">{{ classIcon }}</span>
             <span class="class-name">{{ predictedClass }}</span>
           </div>
-
           <div class="confidence-bar">
-            <div class="confidence-label">Confidence</div>
+            <span class="conf-label">Confidence</span>
             <div class="bar-track">
               <div class="bar-fill" :style="{ width: (confidence * 100) + '%' }"></div>
             </div>
-            <div class="confidence-value">{{ (confidence * 100).toFixed(0) }}%</div>
+            <span class="conf-value">{{ (confidence * 100).toFixed(0) }}%</span>
           </div>
-
           <div class="reference-section">
             <div class="ref-label">Reference pose:</div>
             <img :src="referenceImage" class="reference-img" />
           </div>
         </div>
-
         <div v-else class="idle-state">
           <div class="idle-icon">🤸</div>
           <p>Waiting for pose detection...</p>
@@ -61,16 +59,16 @@
 import { ref, computed, onBeforeUnmount } from 'vue'
 
 const video = ref(null)
-const canvas = ref(null)
-let socket = null
+let pc = null
+let dataChannel = null
+let localStream = null
+let videoTrack = null
 const streaming = ref(false)
-const frame = ref(null)
 const predictedClass = ref(null)
 const confidence = ref(0)
 const error = ref(null)
 
-let lastSent = 0
-const SEND_INTERVAL = 150 // ms (~6.5 FPS)
+const ICE_SERVERS = []  // localhost only; add STUN/TURN for remote
 
 const classEmoji = {
   'heart-attack': '💔',
@@ -86,68 +84,92 @@ const referenceImage = computed(() => {
   return `/static/poses/${predictedClass.value}.jpeg`
 })
 
-const toggleStream = async () => {
-  if (!streaming.value) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-      video.value.srcObject = stream
-
-      socket = new WebSocket(`ws://${window.location.host}/ws/pose`)
-
-      socket.onopen = () => {
-        streaming.value = true
-        error.value = null
-        predictedClass.value = null
-        requestAnimationFrame(sendFrames)
-      }
-
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data)
-        frame.value = data.image
-        if (data.class) {
-          predictedClass.value = data.class
-          confidence.value = data.confidence
-        }
-      }
-
-      socket.onerror = () => {
-        error.value = "WebSocket connection failed. Is the backend running?"
-        console.error(err)
-      }
-
-      socket.onclose = () => {
-        streaming.value = false
-      }
-    } catch (err) {
-      error.value = "Camera access denied or unavailable."
-    }
-  } else {
-    if (socket) socket.close()
-    streaming.value = false
+function cleanup() {
+  if (dataChannel) {
+    dataChannel.close()
+    dataChannel = null
   }
+  if (pc) {
+    pc.close()
+    pc = null
+  }
+  if (localStream) {
+    localStream.getTracks().forEach(t => t.stop())
+    localStream = null
+  }
+  streaming.value = false
 }
 
-const sendFrames = (timestamp) => {
-  if (!streaming.value || !socket || socket.readyState !== WebSocket.OPEN) return
-
-  if (timestamp - lastSent >= SEND_INTERVAL) {
-    lastSent = timestamp
-    const tempCanvas = canvas.value
-    tempCanvas.width = 320
-    tempCanvas.height = 240
-    const ctx = tempCanvas.getContext("2d")
-    ctx.drawImage(video.value, 0, 0, tempCanvas.width, tempCanvas.height)
-    const dataUrl = tempCanvas.toDataURL("image/jpeg", 0.5)
-    socket.send(JSON.stringify({ image: dataUrl }))
+async function toggleStream() {
+  if (streaming.value) {
+    cleanup()
+    return
   }
 
-  requestAnimationFrame(sendFrames)
+  try {
+    // 1. Get webcam
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 640, height: 480, frameRate: 30 }
+    })
+    video.value.srcObject = localStream
+    videoTrack = localStream.getVideoTracks()[0]
+
+    // 2. Create peer connection
+    pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
+    pc.addTrack(videoTrack, localStream)
+
+    // 3. Handle incoming DataChannel from server
+    pc.ondatachannel = (event) => {
+      dataChannel = event.channel
+      dataChannel.onmessage = (e) => {
+        const data = JSON.parse(e.data)
+        predictedClass.value = data.class
+        confidence.value = data.confidence
+      }
+    }
+
+    // 4. Handle ICE connection state
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'disconnected' ||
+          pc.iceConnectionState === 'failed') {
+        error.value = 'WebRTC connection lost'
+        cleanup()
+      }
+    }
+
+    // 5. Create SDP offer and send to server
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+
+    const resp = await fetch('/offer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sdp: pc.localDescription.sdp,
+        type: pc.localDescription.type,
+      }),
+    })
+
+    if (!resp.ok) {
+      throw new Error(`Server returned ${resp.status}`)
+    }
+
+    const answer = await resp.json()
+    await pc.setRemoteDescription(
+      new RTCSessionDescription({ sdp: answer.sdp, type: answer.type })
+    )
+
+    streaming.value = true
+    error.value = null
+    predictedClass.value = null
+  } catch (err) {
+    cleanup()
+    error.value = err.message || 'Failed to connect'
+  }
 }
 
 onBeforeUnmount(() => {
-  if (socket) socket.close()
-  const stream = video.value?.srcObject
-  if (stream) stream.getTracks().forEach(track => track.stop())
+  cleanup()
 })
 </script>
 
@@ -193,16 +215,68 @@ onBeforeUnmount(() => {
   min-height: 240px;
 }
 
-.pose-feed {
+.placeholder {
+  color: #6b7280;
+  font-size: 1rem;
+}
+
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.webcam-feed {
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
 }
 
-.placeholder {
-  color: #6b7280;
-  font-size: 1rem;
+.class-overlay {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.overlay-badge {
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.overlay-conf {
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: rgba(0,0,0,0.65);
+  color: white;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.badge-heart-attack {
+  background: rgba(239, 68, 68, 0.85);
+  color: white;
+}
+
+.badge-idea {
+  background: rgba(234, 179, 8, 0.85);
+  color: #1a1a1a;
+}
+
+.badge-stand {
+  background: rgba(34, 197, 94, 0.85);
+  color: white;
+}
+
+.badge-think {
+  background: rgba(168, 85, 247, 0.85);
+  color: white;
 }
 
 .controls {
@@ -242,13 +316,7 @@ onBeforeUnmount(() => {
   font-size: 0.9rem;
 }
 
-.status {
-  color: #059669;
-  margin-top: 8px;
-  font-size: 0.9rem;
-}
-
-/* Classification Result */
+/* Right panel */
 .result-card {
   display: flex;
   flex-direction: column;
@@ -266,32 +334,24 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
-.class-icon {
-  font-size: 2.2rem;
-}
-
-.class-name {
-  text-transform: capitalize;
-}
+.class-icon { font-size: 2.2rem; }
+.class-name { text-transform: capitalize; }
 
 .class-heart-attack {
   background: #fef2f2;
   color: #991b1b;
   border: 2px solid #fecaca;
 }
-
 .class-idea {
   background: #fffbeb;
   color: #92400e;
   border: 2px solid #fde68a;
 }
-
 .class-stand {
   background: #f0fdf4;
   color: #166534;
   border: 2px solid #bbf7d0;
 }
-
 .class-think {
   background: #f3e8ff;
   color: #581c87;
@@ -304,7 +364,7 @@ onBeforeUnmount(() => {
   gap: 12px;
 }
 
-.confidence-label {
+.conf-label {
   font-size: 0.85rem;
   color: #6b7280;
   min-width: 75px;
@@ -325,7 +385,7 @@ onBeforeUnmount(() => {
   transition: width 0.3s ease;
 }
 
-.confidence-value {
+.conf-value {
   font-size: 0.95rem;
   font-weight: 700;
   color: #374151;
