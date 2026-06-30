@@ -11,9 +11,21 @@ import CameraPredict from './components/CameraPredict.vue'
 
 <style>
 body {
-  font-family: Arial, sans-serif;
+  margin: 0;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
   background: #f3f4f6;
-  text-align: center;
   padding: 2rem;
+}
+
+#app {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+h1 {
+  text-align: center;
+  color: #1f2937;
+  font-size: 1.75rem;
+  margin-bottom: 2rem;
 }
 </style>
