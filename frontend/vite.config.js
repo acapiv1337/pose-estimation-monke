@@ -15,4 +15,16 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  server: {
+    port: 5173,
+    proxy: {
+      '/ws': {
+        target: 'ws://localhost:8001',
+        ws: true,
+      },
+      '/static': {
+        target: 'http://localhost:8001',
+      },
+    },
+  },
 })

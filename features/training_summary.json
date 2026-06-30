@@ -1,0 +1,16 @@
+{
+  "accuracy": 0.9152542372881356,
+  "cv_mean": 0.9488603156049095,
+  "cv_std": 0.010539627426160027,
+  "n_samples": 293,
+  "n_features": 53,
+  "n_classes": 4,
+  "classes": [
+    "heart-attack",
+    "idea",
+    "stand",
+    "think"
+  ],
+  "train_samples": 234,
+  "test_samples": 59
+}
