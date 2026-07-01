@@ -140,4 +140,7 @@ async def websocket_pose(websocket: WebSocket):
         print("WebSocket closed:", e)
     finally:
         processing = False
-        await websocket.close()
+        try:
+            await websocket.close()
+        except Exception:
+            pass
