@@ -1,5 +1,5 @@
 <template>
-  <div class="camera-predict">
+  <div v-if="loggedIn" class="camera-predict">
     <!-- ═══ HEADER ═══ -->
     <header class="header">
       <h1 class="header-title">MONKEY POSE DETECTION</h1>
@@ -22,7 +22,7 @@
                   <span class="pose-label">{{ p.emoji }} {{ p.label }}</span>
                 </div>
               </div>
-              <p class="popover-hint">Try to mimic one of these poses 🙈</p>
+              <p class="popover-hint">Try to mimic one of these poses :)</p>
               <p class="popover-current" v-if="predictedClass">
                 Currently detecting: <strong>{{ predictedClass }}</strong>
               </p>
@@ -76,6 +76,10 @@
             <div class="monkey-frame">
               <img :src="referenceImage" :alt="predictedClass" class="monkey-img" />
             </div>
+            <div class="monkey-pose-name" :class="'pose-' + predictedClass">
+              <span class="pose-emoji">{{ classEmoji[predictedClass] }}</span>
+              {{ predictedClass.replace('-', ' ') }}
+            </div>
           </div>
           <div v-else class="monkey-idle">
             <div class="idle-avatar">🐒</div>
@@ -88,8 +92,9 @@
     <p v-if="error" class="error">{{ error }}</p>
 
     <!-- ═══ FOOTER ═══ -->
-    <footer class="footer">
+    <footer class="footer" >
       <div class="label-bar">
+        <span class="label-prefix">LABEL</span>
         <span class="label-value" v-if="predictedClass" :class="'label-' + predictedClass">
           {{ predictedClass.replace('-', ' ') }}
         </span>
@@ -104,8 +109,22 @@
   </div>
 </template>
 
+
 <script setup>
-import { ref, computed, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+
+const PASSWORD = 'test123'
+const loggedIn = ref(sessionStorage.getItem('auth') === '1')
+
+onMounted(() => {
+  if (!loggedIn.value) {
+    const input = window.prompt('🐵 Enter password:')
+    if (input === PASSWORD) {
+      sessionStorage.setItem('auth', '1')
+      loggedIn.value = true
+    }
+  }
+})
 
 const video = ref(null)
 const fileInput = ref(null)
@@ -120,6 +139,8 @@ const uploadedImage = ref(null)
 const uploading = ref(false)
 const showInfo = ref(false)
 
+let lastSent = 0
+const SEND_INTERVAL = 150
 
 const classEmoji = {
   'heart-attack': '💔',
@@ -149,14 +170,13 @@ const toggleStream = async () => {
       video.value.srcObject = stream
       video.value.play()
 
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      socket = new WebSocket(`${wsProtocol}//${window.location.host}/ws/pose`)
+      socket = new WebSocket(`ws://${window.location.host}/ws/pose`)
 
       socket.onopen = () => {
         streaming.value = true
         error.value = null
         predictedClass.value = null
-        sendFrame()
+        requestAnimationFrame(sendFrames)
       }
 
       socket.onmessage = (event) => {
@@ -165,7 +185,6 @@ const toggleStream = async () => {
           predictedClass.value = data.class
           confidence.value = data.confidence
         }
-        sendFrame()
       }
 
       socket.onerror = () => {
@@ -186,14 +205,18 @@ const toggleStream = async () => {
   }
 }
 
-const sendFrame = () => {
+const sendFrames = (timestamp) => {
   if (!streaming.value || !socket || socket.readyState !== WebSocket.OPEN) return
-  canvas.width = 320
-  canvas.height = 240
-  const ctx = canvas.getContext("2d")
-  ctx.drawImage(video.value, 0, 0, canvas.width, canvas.height)
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.5)
-  socket.send(JSON.stringify({ image: dataUrl }))
+  if (timestamp - lastSent >= SEND_INTERVAL) {
+    lastSent = timestamp
+    canvas.width = 320
+    canvas.height = 240
+    const ctx = canvas.getContext("2d")
+    ctx.drawImage(video.value, 0, 0, canvas.width, canvas.height)
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.5)
+    socket.send(JSON.stringify({ image: dataUrl }))
+  }
+  requestAnimationFrame(sendFrames)
 }
 
 /* ─── Upload ─── */
@@ -406,13 +429,6 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.popover-hint {
-  margin: 6px 0 0;
-  font-size: 0.85rem;
-  color: #fbbf24;
-  text-align: center;
-}
-
 /* Popover transition */
 .pop-enter-active,
 .pop-leave-active {
@@ -457,7 +473,6 @@ onBeforeUnmount(() => {
   gap: 20px;
   padding: 20px;
   min-height: 0;
-  align-items: center;
 }
 
 .panel {
@@ -473,6 +488,10 @@ onBeforeUnmount(() => {
   aspect-ratio: 16 / 9.2;
 }
 
+.panel-right {
+  margin-top: -12px;
+}
+
 .panel-header-row {
   display: flex;
   align-items: center;
@@ -481,11 +500,10 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(0, 0, 0, 0.3);
   flex-shrink: 0;
-  min-height: 44px;
 }
 
 .panel-label {
-  font-size: 1rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 1.5px;
   color: rgba(255, 255, 255, 0.5);
@@ -590,27 +608,35 @@ onBeforeUnmount(() => {
 
 /* ═══ RIGHT PANEL — Monkey Display ═══ */
 .monkey-body {
-  padding: 0;
+  padding: 16px;
 }
 
 .monkey-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
   width: 100%;
   height: 100%;
 }
 
 .monkey-frame {
+  flex: 1;
   width: 100%;
-  height: 100%;
+  max-height: calc(100% - 44px);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
 }
 
 .monkey-img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   display: block;
 }
 
@@ -689,7 +715,7 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 12px;
   padding: 14px 20px;
-  border-top: 8px solid rgba(255, 255, 255, 0.2);
+  border-top: 2px solid rgba(255, 255, 255, 0.15);
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(6px);
   flex-shrink: 0;
@@ -703,15 +729,22 @@ onBeforeUnmount(() => {
   padding: 8px 20px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 14px;
   background: rgba(0, 0, 0, 0.3);
   height: 56px;
   box-sizing: border-box;
-  position: relative;
+}
+
+.label-prefix {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: rgba(255, 255, 255, 0.35);
+  flex-shrink: 0;
 }
 
 .label-value {
-  font-size: 1.8rem;
+  font-size: 1.4rem;
   font-weight: 800;
   text-transform: capitalize;
   transition: color 0.3s;
@@ -773,4 +806,5 @@ onBeforeUnmount(() => {
   text-align: center;
   line-height: 1.3;
 }
+
 </style>
