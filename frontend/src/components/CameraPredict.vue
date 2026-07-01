@@ -461,6 +461,7 @@ onBeforeUnmount(() => {
   gap: 20px;
   padding: 20px;
   min-height: 0;
+  align-items: center;
 }
 
 .panel {
@@ -597,31 +598,23 @@ onBeforeUnmount(() => {
 }
 
 .monkey-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
   width: 100%;
   height: 100%;
 }
 
 .monkey-frame {
-  flex: 1;
   width: 100%;
-  max-height: calc(100% - 44px);
-  border-radius: 12px;
-  overflow: hidden;
-  border: 3px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.3);
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
 }
 
 .monkey-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
 }
 
