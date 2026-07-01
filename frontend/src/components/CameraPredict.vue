@@ -1,6 +1,20 @@
 <template>
   <div class="camera-predict">
-    <!-- ═══ HEADER ═══ -->
+    <!-- ═══ LOGIN OVERLAY ═══ -->
+    <div v-if="!loggedIn" class="login-overlay">
+      <div class="login-modal">
+        <div class="login-icon">🐵</div>
+        <h2 class="login-title">Monkey Pose Detection</h2>
+        <p class="login-subtitle">Enter password to access the app</p>
+        <div class="login-input-wrap">
+          <input v-model="passwordInput" type="password" class="login-input" placeholder="••••••••" @keyup.enter="checkLogin" autofocus />
+          <button class="login-btn" @click="checkLogin">Enter →</button>
+        </div>
+        <p v-if="loginError" class="login-error-msg">Incorrect password. Try again.</p>
+      </div>
+    </div>
+    <template v-if="loggedIn">
+      <!-- ═══ HEADER ═══ -->
     <header class="header">
       <h1 class="header-title">MONKEY POSE DETECTION</h1>
       <div class="header-actions">
@@ -101,11 +115,12 @@
         <span class="confident-caption">PERCENT<br />CONFIDENT</span>
       </div>
     </footer>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onBeforeUnmount } from 'vue'
+import { ref, computed, onBeforeUnmount, nextTick } from 'vue'
 
 const video = ref(null)
 const fileInput = ref(null)
@@ -119,6 +134,25 @@ const error = ref(null)
 const uploadedImage = ref(null)
 const uploading = ref(false)
 const showInfo = ref(false)
+
+/* ─── Login state ─── */
+const loggedIn = ref(false)
+const passwordInput = ref('')
+const loginError = ref(false)
+
+const checkLogin = () => {
+  if (passwordInput.value === 'test123') {
+    loggedIn.value = true
+    loginError.value = false
+  } else {
+    loginError.value = true
+    passwordInput.value = ''
+    nextTick(() => {
+      const input = document.querySelector('.login-input')
+      if (input) input.focus()
+    })
+  }
+}
 
 let lastSent = 0
 const SEND_INTERVAL = 150
@@ -777,5 +811,110 @@ onBeforeUnmount(() => {
   color: rgba(255, 255, 255, 0.35);
   text-align: center;
   line-height: 1.3;
+}
+
+/* ═══ LOGIN OVERLAY ═══ */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-modal {
+  background: #1e1e2e;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  padding: 40px 44px;
+  width: 360px;
+  max-width: 90vw;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  animation: login-enter 0.3s ease;
+}
+
+@keyframes login-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.login-icon {
+  font-size: 4rem;
+  margin-bottom: 8px;
+}
+
+.login-title {
+  margin: 0 0 4px;
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.login-subtitle {
+  margin: 0 0 24px;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.login-input-wrap {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.login-input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  font-family: inherit;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.login-input:focus {
+  border-color: #2563eb;
+}
+
+.login-input::placeholder {
+  color: rgba(255, 255, 255, 0.25);
+}
+
+.login-btn {
+  padding: 12px 20px;
+  border: none;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.login-btn:hover {
+  background: #1d4ed8;
+}
+
+.login-error-msg {
+  margin: 14px 0 0;
+  font-size: 0.85rem;
+  color: #ef4444;
+  font-weight: 600;
 }
 </style>
