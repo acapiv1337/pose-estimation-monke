@@ -1,84 +1,106 @@
 <template>
   <div class="camera-predict">
-    <!-- Mode tabs -->
-    <div class="mode-tabs">
-      <button @click="mode = 'webcam'" :class="['tab', { active: mode === 'webcam' }]">
-        📷 Webcam
-      </button>
-      <button @click="mode = 'upload'" :class="['tab', { active: mode === 'upload' }]">
-        📁 Upload Image
-      </button>
-    </div>
-
-    <div class="split">
-      <!-- Left: Webcam or Uploaded Image -->
-      <div class="cam-half">
-        <!-- Webcam mode -->
-        <template v-if="mode === 'webcam'">
-          <div v-if="!streaming" class="placeholder">
-            <div class="placeholder-content">
-              <div class="placeholder-icon">📷</div>
-              <span>Press Start to begin</span>
+    <!-- ═══ HEADER ═══ -->
+    <header class="header">
+      <h1 class="header-title">MONKEY POSE DETECTION</h1>
+      <div class="header-actions">
+        <!-- Info button -->
+        <div class="info-wrap">
+          <button class="icon-btn info-btn" @mouseenter="showInfo = true" @mouseleave="showInfo = false"
+            @focus="showInfo = true" @blur="showInfo = false">
+            ⓘ
+          </button>
+          <Transition name="pop">
+            <div v-if="showInfo" class="info-popover">
+              <div class="popover-arrow"></div>
+              <h3>How it works</h3>
+              <p><strong>YOLOv8s-pose</strong> extracts 11 upper-body keypoints from each frame, then an <strong>XGBoost
+                  classifier</strong> predicts one of 4 gestures:</p>
+              <div class="pose-grid">
+                <div class="pose-card" v-for="p in poseList" :key="p.class">
+                  <img :src="p.image" :alt="p.class" class="pose-thumb" />
+                  <span class="pose-label">{{ p.emoji }} {{ p.label }}</span>
+                </div>
+              </div>
+              <p class="popover-hint">Try to mimic one of these poses 🙈</p>
+              <p class="popover-current" v-if="predictedClass">
+                Currently detecting: <strong>{{ predictedClass }}</strong>
+              </p>
             </div>
+          </Transition>
+        </div>
+        <!-- Upload button -->
+        <div class="upload-wrap">
+          <button class="icon-btn upload-btn-header" @click="$refs.fileInput.click()">
+            📁
+          </button>
+          <span class="upload-tooltip">Upload an image</span>
+          <input ref="fileInput" type="file" accept="image/*" @change="handleUpload" hidden />
+        </div>
+      </div>
+    </header>
+
+    <!-- ═══ MAIN CONTENT ═══ -->
+    <div class="main-area">
+      <!-- LEFT: Webcam -->
+      <div class="panel panel-left">
+        <div class="panel-header-row">
+          <span class="panel-label">WEBCAM</span>
+          <button v-if="!streaming" class="start-btn" @click="toggleStream">▶ Start Webcam</button>
+          <button v-else class="stop-btn" @click="toggleStream">■ Stop</button>
+        </div>
+        <div class="panel-body">
+          <!-- Placeholder -->
+          <div v-if="!streaming && !uploadedImage" class="placeholder-content">
+            <div class="placeholder-icon">🐵</div>
+            <p>Press <strong>Start Webcam</strong> to begin</p>
           </div>
-          <div class="video-wrapper" :class="{ hidden: !streaming }">
+          <!-- Video feed -->
+          <div v-show="streaming" class="video-wrapper">
             <video ref="video" autoplay playsinline muted class="webcam-feed"></video>
           </div>
-          <div class="controls-bar">
-            <button @click="toggleStream" :class="['btn', streaming ? 'btn-stop' : 'btn-start']">
-              {{ streaming ? '⏹ Stop Stream' : '▶ Start Stream' }}
-            </button>
-          </div>
-        </template>
-
-        <!-- Upload mode -->
-        <template v-else>
-          <div v-if="!uploadedImage" class="placeholder">
-            <div class="placeholder-content">
-              <div class="placeholder-icon">🖼️</div>
-              <label class="upload-btn">
-                Choose an image
-                <input type="file" accept="image/*" @change="handleUpload" hidden />
-              </label>
-            </div>
-          </div>
-          <div v-else class="upload-preview">
+          <!-- Uploaded image preview -->
+          <div v-if="uploadedImage && !streaming" class="upload-preview">
             <img :src="uploadedImage" class="uploaded-img" />
-            <div class="controls-bar">
-              <label class="btn btn-start" style="display:inline-block;cursor:pointer">
-                🔄 Choose another
-                <input type="file" accept="image/*" @change="handleUpload" hidden />
-              </label>
-            </div>
-          </div>
-        </template>
-
-        <p v-if="error" class="error">{{ error }}</p>
-      </div>
-
-      <!-- Right: Classification Result -->
-      <div class="monkey-half" :class="{ active: predictedClass }">
-        <div v-if="predictedClass" class="monkey-content">
-          <div class="class-badge" :class="'class-' + predictedClass">
-            <span class="class-icon">{{ classIcon }}</span>
-            <span class="class-name">{{ predictedClass }}</span>
-          </div>
-          <div class="confidence-bar">
-            <div class="bar-track">
-              <div class="bar-fill" :style="{ width: (confidence * 100) + '%' }"></div>
-            </div>
-            <div class="confidence-value">{{ (confidence * 100).toFixed(0) }}%</div>
-          </div>
-          <div class="monkey-frame">
-            <img :src="referenceImage" class="monkey-img" />
           </div>
         </div>
-        <div v-else class="monkey-idle">
-          <div class="idle-icon">🐒</div>
-          <p>{{ mode === 'webcam' ? 'Waiting for pose detection...' : 'Upload an image to classify' }}</p>
+      </div>
+
+      <!-- RIGHT: Monkey Display -->
+      <div class="panel panel-right">
+        <div class="panel-header-row">
+          <span class="panel-label">MONKEY DISPLAY</span>
+        </div>
+        <div class="panel-body monkey-body">
+          <div v-if="predictedClass" class="monkey-content">
+            <div class="monkey-frame">
+              <img :src="referenceImage" :alt="predictedClass" class="monkey-img" />
+            </div>
+          </div>
+          <div v-else class="monkey-idle">
+            <div class="idle-avatar">🐒</div>
+            <p class="idle-text">Waiting for pose...</p>
+          </div>
         </div>
       </div>
     </div>
+
+    <p v-if="error" class="error">{{ error }}</p>
+
+    <!-- ═══ FOOTER ═══ -->
+    <footer class="footer">
+      <div class="label-bar">
+        <span class="label-value" v-if="predictedClass" :class="'label-' + predictedClass">
+          {{ predictedClass.replace('-', ' ') }}
+        </span>
+        <span class="label-value label-none" v-else>—</span>
+      </div>
+      <div class="confident-box">
+        <span class="confident-pct" v-if="predictedClass">{{ (confidence * 100).toFixed(0) }}%</span>
+        <span class="confident-pct pct-none" v-else>—</span>
+        <span class="confident-caption">PERCENT<br />CONFIDENT</span>
+      </div>
+    </footer>
   </div>
 </template>
 
@@ -86,15 +108,17 @@
 import { ref, computed, onBeforeUnmount } from 'vue'
 
 const video = ref(null)
+const fileInput = ref(null)
 const canvas = document.createElement('canvas')
 let socket = null
-const mode = ref('webcam')
+
 const streaming = ref(false)
 const predictedClass = ref(null)
 const confidence = ref(0)
 const error = ref(null)
 const uploadedImage = ref(null)
 const uploading = ref(false)
+const showInfo = ref(false)
 
 let lastSent = 0
 const SEND_INTERVAL = 150
@@ -106,12 +130,18 @@ const classEmoji = {
   'think': '🤔'
 }
 
-const classIcon = computed(() => classEmoji[predictedClass.value] || '❓')
-
 const referenceImage = computed(() => {
   if (!predictedClass.value) return ''
   return `/static/poses/${predictedClass.value}.jpeg`
 })
+
+const classes = ['heart-attack', 'idea', 'stand', 'think']
+const poseList = classes.map(c => ({
+  class: c,
+  label: c.replace('-', ' '),
+  emoji: classEmoji[c],
+  image: `/static/poses/${c}.jpeg`
+}))
 
 /* ─── Webcam ─── */
 const toggleStream = async () => {
@@ -149,7 +179,9 @@ const toggleStream = async () => {
       error.value = "Camera access denied or unavailable."
     }
   } else {
-    if (socket) socket.close()
+    if (socket) {
+      socket.close()
+    }
     streaming.value = false
   }
 }
@@ -180,7 +212,6 @@ const handleUpload = async (e) => {
   }
   reader.readAsDataURL(file)
 
-  // Send to backend
   if (uploading.value) return
   uploading.value = true
   error.value = null
@@ -211,103 +242,325 @@ onBeforeUnmount(() => {
 })
 </script>
 
-<style scoped>
-@import url('https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;600;700&display=swap');
-
+<style>
+/* ─── Global reset for full-page layout ─── */
 .camera-predict {
   display: flex;
   flex-direction: column;
   height: 100vh;
   width: 100%;
   font-family: 'Comic Neue', 'Comic Sans MS', cursive, sans-serif;
+  color: #e0e0e0;
   background: transparent;
 }
 
-/* ─── Mode tabs ─── */
-.mode-tabs {
+/* ═══ HEADER ═══ */
+.header {
   display: flex;
-  gap: 0;
-  background: rgba(0,0,0,0.4);
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  padding: 16px 24px;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  flex-shrink: 0;
+  overflow: visible;
+  z-index: 20;
 }
 
-.tab {
-  flex: 1;
-  padding: 14px 20px;
-  border: none;
-  background: transparent;
-  color: #6b7280;
-  font-family: inherit;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.tab.active {
-  background: rgba(0,0,0,0.5);
+.header-title {
+  margin: 0;
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: 2px;
   color: #fff;
-  border-bottom: 3px solid #2563eb;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
 }
 
-.tab:hover {
-  color: #d1d5db;
-}
-
-/* ─── Split layout ─── */
-.split {
+.header-actions {
+  position: absolute;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
-  flex: 1;
-  overflow: hidden;
+  gap: 8px;
+  overflow: visible;
+  align-items: flex-start;
 }
 
-/* ─── Left half ─── */
-.cam-half {
-  flex: 0.45;
+.icon-btn {
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+/* Header icon buttons — same size square */
+.info-btn,
+.upload-btn-header {
+  width: 40px;
+  height: 40px;
+  font-size: 1.2rem;
+  align-self: flex-start;
+}
+
+/* ─── Info popover ─── */
+.info-wrap {
+  position: relative;
+}
+
+.info-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: 320px;
+  background: #1e1e2e;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 20px 24px;
+  z-index: 100;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.7);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.popover-arrow {
+  position: absolute;
+  top: -8px;
+  right: 14px;
+  width: 14px;
+  height: 14px;
+  background: #1e1e2e;
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  transform: rotate(45deg);
+}
+
+.info-popover h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  color: #fbbf24;
+}
+
+.info-popover ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.info-popover li {
+  margin-bottom: 2px;
+}
+
+.popover-current {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: #86efac;
+}
+
+/* ─── Pose preview grid in info popover ─── */
+.pose-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.pose-card {
   display: flex;
   flex-direction: column;
-  background: transparent;
-  position: relative;
-  overflow: hidden;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 6px;
+  transition: background 0.2s;
 }
 
-.placeholder {
+.pose-card:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.pose-thumb {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 4px;
+  display: block;
+}
+
+.pose-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.popover-hint {
+  margin: 6px 0 0;
+  font-size: 0.85rem;
+  color: #fbbf24;
+  text-align: center;
+}
+
+/* Popover transition */
+.pop-enter-active,
+.pop-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* ─── Upload tooltip ─── */
+.upload-wrap {
+  position: relative;
+}
+
+.upload-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  white-space: nowrap;
+  padding: 6px 14px;
+  background: #1e1e2e;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 100;
+}
+
+.upload-wrap:hover .upload-tooltip {
+  opacity: 1;
+}
+
+/* ═══ MAIN AREA ═══ */
+.main-area {
+  flex: 1;
+  display: flex;
+  gap: 20px;
+  padding: 20px;
+  min-height: 0;
+}
+
+.panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
+  min-width: 0;
+  aspect-ratio: 16 / 9.2;
+}
+
+.panel-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.3);
+  flex-shrink: 0;
+  min-height: 44px;
+}
+
+.panel-label {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.panel-body {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6b7280;
+  overflow: hidden;
+  position: relative;
 }
 
-.placeholder-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-}
-
-.placeholder-icon {
-  font-size: 4rem;
-  opacity: 0.4;
-}
-
-.upload-btn {
-  padding: 14px 36px;
+/* ─── Start / Stop buttons ─── */
+.start-btn {
+  padding: 6px 18px;
+  border: none;
+  border-radius: 8px;
   background: #2563eb;
-  color: white;
-  border-radius: 10px;
-  font-size: 1rem;
-  font-weight: 600;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
   cursor: pointer;
   transition: background 0.2s;
 }
 
-.upload-btn:hover {
+.start-btn:hover {
   background: #1d4ed8;
 }
 
+.stop-btn {
+  padding: 6px 18px;
+  border: none;
+  border-radius: 8px;
+  background: #dc2626;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.stop-btn:hover {
+  background: #b91c1c;
+}
+
+/* ─── Placeholder ─── */
+.placeholder-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.placeholder-icon {
+  font-size: 4rem;
+}
+
+.placeholder-content p {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+/* ─── Video ─── */
 .video-wrapper {
-  flex: 1;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -321,169 +574,48 @@ onBeforeUnmount(() => {
   display: block;
 }
 
-.video-wrapper.hidden {
-  display: none;
-}
-
+/* ─── Upload preview ─── */
 .upload-preview {
-  flex: 1;
+  width: 100%;
+  height: 100%;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .uploaded-img {
-  flex: 1;
   width: 100%;
+  height: 100%;
   object-fit: contain;
   display: block;
 }
 
-.controls-bar {
-  padding: 16px 24px;
-  text-align: center;
-  background: rgba(0,0,0,0.5);
-}
-
-.btn {
-  padding: 12px 40px;
-  border: none;
-  border-radius: 10px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-start {
-  background: #2563eb;
-  color: white;
-}
-.btn-start:hover {
-  background: #1d4ed8;
-}
-
-.btn-stop {
-  background: #dc2626;
-  color: white;
-}
-.btn-stop:hover {
-  background: #b91c1c;
-}
-
-.error {
-  color: #ef4444;
-  margin: 8px 24px;
-  text-align: center;
-  font-size: 0.85rem;
-}
-
-/* ─── Right half ─── */
-.monkey-half {
-  flex: 1.55;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  transition: background 0.4s;
-}
-
-.monkey-half.active {
-  background: transparent;
+/* ═══ RIGHT PANEL — Monkey Display ═══ */
+.monkey-body {
+  padding: 0;
 }
 
 .monkey-content {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 24px;
-  padding: 32px;
-  width: 100%;
-  max-width: 640px;
-}
-
-.class-badge {
-  display: flex;
-  align-items: center;
   gap: 14px;
-  padding: 18px 32px;
-  border-radius: 14px;
-  font-size: 1.5rem;
-  font-weight: 700;
-  justify-content: center;
   width: 100%;
-}
-
-.class-icon {
-  font-size: 2rem;
-}
-
-.class-name {
-  text-transform: capitalize;
-}
-
-.class-heart-attack {
-  background: #2a1212;
-  color: #fca5a5;
-  border: 2px solid #7f1d1d;
-}
-
-.class-idea {
-  background: #2a2412;
-  color: #fde68a;
-  border: 2px solid #7f6d1d;
-}
-
-.class-stand {
-  background: #122a1a;
-  color: #86efac;
-  border: 2px solid #1d7f3d;
-}
-
-.class-think {
-  background: #22123a;
-  color: #d8b4fe;
-  border: 2px solid #5b1d7f;
-}
-
-.confidence-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-}
-
-.bar-track {
-  flex: 1;
-  height: 10px;
-  background: #1f2937;
-  border-radius: 5px;
-  overflow: hidden;
-}
-
-.bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #22c55e, #16a34a);
-  border-radius: 5px;
-  transition: width 0.3s ease;
-}
-
-.confidence-value {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #22c55e;
-  min-width: 48px;
-  text-align: right;
 }
 
 .monkey-frame {
+  flex: 1;
   width: 100%;
-  max-width: 600px;
-  aspect-ratio: 1;
-  border-radius: 20px;
+  max-height: calc(100% - 44px);
+  border-radius: 12px;
   overflow: hidden;
-  border: 4px solid rgba(255,255,255,0.15);
-  box-shadow: 0 12px 48px rgba(0,0,0,0.6);
-  background: #1a1a2e;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .monkey-img {
@@ -493,20 +625,163 @@ onBeforeUnmount(() => {
   display: block;
 }
 
+.monkey-pose-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 18px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  flex-shrink: 0;
+}
+
+.pose-emoji {
+  font-size: 1.2rem;
+}
+
+.pose-heart-attack {
+  background: rgba(127, 29, 29, 0.4);
+  color: #fca5a5;
+  border: 1px solid #7f1d1d;
+}
+
+.pose-idea {
+  background: rgba(127, 109, 29, 0.4);
+  color: #fde68a;
+  border: 1px solid #7f6d1d;
+}
+
+.pose-stand {
+  background: rgba(29, 127, 61, 0.4);
+  color: #86efac;
+  border: 1px solid #1d7f3d;
+}
+
+.pose-think {
+  background: rgba(91, 29, 127, 0.4);
+  color: #d8b4fe;
+  border: 1px solid #5b1d7f;
+}
+
+/* ─── Monkey idle ─── */
 .monkey-idle {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 16px;
-  color: #4b5563;
+  gap: 10px;
 }
 
-.idle-icon {
+.idle-avatar {
   font-size: 5rem;
+  filter: grayscale(0.5);
+  opacity: 0.6;
 }
 
-.monkey-idle p {
-  font-size: 1.1rem;
+.idle-text {
   margin: 0;
+  font-size: 0.95rem;
+  color: rgba(255, 255, 255, 0.35);
+  font-weight: 600;
+}
+
+/* ═══ ERROR MESSAGE ═══ */
+.error {
+  color: #ef4444;
+  margin: 0 20px 8px;
+  text-align: center;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+/* ═══ FOOTER ═══ */
+.footer {
+  display: flex;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 3px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  flex-shrink: 0;
+  align-items: flex-start;
+}
+
+.label-bar {
+  flex: 1;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  padding: 8px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.3);
+  height: 56px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.label-value {
+  font-size: 1.8rem;
+  font-weight: 800;
+  text-transform: capitalize;
+  transition: color 0.3s;
+}
+
+.label-none {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.label-heart-attack {
+  color: #fca5a5;
+}
+
+.label-idea {
+  color: #fde68a;
+}
+
+.label-stand {
+  color: #86efac;
+}
+
+.label-think {
+  color: #d8b4fe;
+}
+
+.confident-box {
+  width: 100px;
+  min-width: 100px;
+  height: 72px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  gap: 1px;
+  background: rgba(0, 0, 0, 0.3);
+  box-sizing: border-box;
+  align-self: flex-start;
+}
+
+.confident-pct {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: #22c55e;
+  line-height: 1.2;
+}
+
+.pct-none {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.confident-caption {
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.35);
+  text-align: center;
+  line-height: 1.3;
 }
 </style>

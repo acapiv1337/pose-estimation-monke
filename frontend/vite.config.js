@@ -22,6 +22,9 @@ export default defineConfig({
         target: 'ws://localhost:8001',
         ws: true,
       },
+      '/predict': {
+        target: 'http://localhost:8001',
+      },
       '/static': {
         target: 'http://localhost:8001',
       },
