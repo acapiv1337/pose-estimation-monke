@@ -693,7 +693,7 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 12px;
   padding: 14px 20px;
-  border-top: 3px solid rgba(255, 255, 255, 0.2);
+  border-top: 8px solid rgba(255, 255, 255, 0.2);
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(6px);
   flex-shrink: 0;
