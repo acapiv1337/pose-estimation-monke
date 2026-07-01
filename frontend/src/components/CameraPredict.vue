@@ -120,8 +120,6 @@ const uploadedImage = ref(null)
 const uploading = ref(false)
 const showInfo = ref(false)
 
-let lastSent = 0
-const SEND_INTERVAL = 150
 
 const classEmoji = {
   'heart-attack': '💔',
@@ -158,7 +156,7 @@ const toggleStream = async () => {
         streaming.value = true
         error.value = null
         predictedClass.value = null
-        requestAnimationFrame(sendFrames)
+        sendFrame()
       }
 
       socket.onmessage = (event) => {
@@ -167,6 +165,7 @@ const toggleStream = async () => {
           predictedClass.value = data.class
           confidence.value = data.confidence
         }
+        sendFrame()
       }
 
       socket.onerror = () => {
@@ -187,18 +186,14 @@ const toggleStream = async () => {
   }
 }
 
-const sendFrames = (timestamp) => {
+const sendFrame = () => {
   if (!streaming.value || !socket || socket.readyState !== WebSocket.OPEN) return
-  if (timestamp - lastSent >= SEND_INTERVAL) {
-    lastSent = timestamp
-    canvas.width = 320
-    canvas.height = 240
-    const ctx = canvas.getContext("2d")
-    ctx.drawImage(video.value, 0, 0, canvas.width, canvas.height)
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.5)
-    socket.send(JSON.stringify({ image: dataUrl }))
-  }
-  requestAnimationFrame(sendFrames)
+  canvas.width = 320
+  canvas.height = 240
+  const ctx = canvas.getContext("2d")
+  ctx.drawImage(video.value, 0, 0, canvas.width, canvas.height)
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.5)
+  socket.send(JSON.stringify({ image: dataUrl }))
 }
 
 /* ─── Upload ─── */
