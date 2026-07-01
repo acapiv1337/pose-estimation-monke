@@ -1,0 +1,20 @@
+services:
+  backend:
+    image: ghcr.io/acapiv1337/pose-estimation-monke-backend:latest
+    container_name: monke-backend
+    restart: unless-stopped
+    networks:
+      - webnet
+
+  frontend:
+    image: ghcr.io/acapiv1337/pose-estimation-monke-frontend:latest
+    container_name: monke-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - webnet
+
+networks:
+  webnet:
+    external: true
