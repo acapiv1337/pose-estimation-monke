@@ -151,7 +151,8 @@ const toggleStream = async () => {
       video.value.srcObject = stream
       video.value.play()
 
-      socket = new WebSocket(`ws://${window.location.host}/ws/pose`)
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      socket = new WebSocket(`${wsProtocol}//${window.location.host}/ws/pose`)
 
       socket.onopen = () => {
         streaming.value = true
