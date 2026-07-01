@@ -1,6 +1,5 @@
 <template>
   <div id="app">
-    <h1>AI Webcam Prediction</h1>
     <CameraPredict />
   </div>
 </template>
@@ -10,22 +9,26 @@ import CameraPredict from './components/CameraPredict.vue'
 </script>
 
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;600;700&display=swap');
+
 body {
   margin: 0;
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: #f3f4f6;
-  padding: 2rem;
+  padding: 0;
+  font-family: 'Comic Neue', 'Comic Sans MS', cursive, sans-serif;
+  overflow: hidden;
 }
 
 #app {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
+  height: 100vh;
+  position: relative;
 }
 
-h1 {
-  text-align: center;
-  color: #1f2937;
-  font-size: 1.75rem;
-  margin-bottom: 2rem;
+#app::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: url('/static/bg.jpeg') center/cover no-repeat;
+  z-index: -1;
 }
 </style>

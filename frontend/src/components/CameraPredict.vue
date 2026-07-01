@@ -1,53 +1,81 @@
 <template>
   <div class="camera-predict">
-    <div class="main-layout">
-      <!-- Left: Webcam + Controls -->
-      <div class="panel">
-        <h2>Live Webcam</h2>
-        <div class="video-container">
+    <!-- Mode tabs -->
+    <div class="mode-tabs">
+      <button @click="mode = 'webcam'" :class="['tab', { active: mode === 'webcam' }]">
+        📷 Webcam
+      </button>
+      <button @click="mode = 'upload'" :class="['tab', { active: mode === 'upload' }]">
+        📁 Upload Image
+      </button>
+    </div>
+
+    <div class="split">
+      <!-- Left: Webcam or Uploaded Image -->
+      <div class="cam-half">
+        <!-- Webcam mode -->
+        <template v-if="mode === 'webcam'">
           <div v-if="!streaming" class="placeholder">
-            <span>Press Start to begin</span>
+            <div class="placeholder-content">
+              <div class="placeholder-icon">📷</div>
+              <span>Press Start to begin</span>
+            </div>
           </div>
           <div class="video-wrapper" :class="{ hidden: !streaming }">
             <video ref="video" autoplay playsinline muted class="webcam-feed"></video>
           </div>
-        </div>
+          <div class="controls-bar">
+            <button @click="toggleStream" :class="['btn', streaming ? 'btn-stop' : 'btn-start']">
+              {{ streaming ? '⏹ Stop Stream' : '▶ Start Stream' }}
+            </button>
+          </div>
+        </template>
 
-        <div class="controls">
-          <button @click="toggleStream" :class="['btn', streaming ? 'btn-stop' : 'btn-start']">
-            {{ streaming ? '⏹ Stop Stream' : '▶ Start Stream' }}
-          </button>
-        </div>
+        <!-- Upload mode -->
+        <template v-else>
+          <div v-if="!uploadedImage" class="placeholder">
+            <div class="placeholder-content">
+              <div class="placeholder-icon">🖼️</div>
+              <label class="upload-btn">
+                Choose an image
+                <input type="file" accept="image/*" @change="handleUpload" hidden />
+              </label>
+            </div>
+          </div>
+          <div v-else class="upload-preview">
+            <img :src="uploadedImage" class="uploaded-img" />
+            <div class="controls-bar">
+              <label class="btn btn-start" style="display:inline-block;cursor:pointer">
+                🔄 Choose another
+                <input type="file" accept="image/*" @change="handleUpload" hidden />
+              </label>
+            </div>
+          </div>
+        </template>
+
         <p v-if="error" class="error">{{ error }}</p>
       </div>
 
       <!-- Right: Classification Result -->
-      <div class="panel">
-        <h2>Pose Classification</h2>
-
-        <div v-if="predictedClass" class="result-card">
+      <div class="monkey-half" :class="{ active: predictedClass }">
+        <div v-if="predictedClass" class="monkey-content">
           <div class="class-badge" :class="'class-' + predictedClass">
             <span class="class-icon">{{ classIcon }}</span>
             <span class="class-name">{{ predictedClass }}</span>
           </div>
-
           <div class="confidence-bar">
-            <div class="confidence-label">Confidence</div>
             <div class="bar-track">
               <div class="bar-fill" :style="{ width: (confidence * 100) + '%' }"></div>
             </div>
             <div class="confidence-value">{{ (confidence * 100).toFixed(0) }}%</div>
           </div>
-
-          <div class="reference-section">
-            <div class="ref-label">Reference pose:</div>
-            <img :src="referenceImage" class="reference-img" />
+          <div class="monkey-frame">
+            <img :src="referenceImage" class="monkey-img" />
           </div>
         </div>
-
-        <div v-else class="idle-state">
-          <div class="idle-icon">🤸</div>
-          <p>Waiting for pose detection...</p>
+        <div v-else class="monkey-idle">
+          <div class="idle-icon">🐒</div>
+          <p>{{ mode === 'webcam' ? 'Waiting for pose detection...' : 'Upload an image to classify' }}</p>
         </div>
       </div>
     </div>
@@ -60,13 +88,16 @@ import { ref, computed, onBeforeUnmount } from 'vue'
 const video = ref(null)
 const canvas = document.createElement('canvas')
 let socket = null
+const mode = ref('webcam')
 const streaming = ref(false)
 const predictedClass = ref(null)
 const confidence = ref(0)
 const error = ref(null)
+const uploadedImage = ref(null)
+const uploading = ref(false)
 
 let lastSent = 0
-const SEND_INTERVAL = 150 // ms (~6.5 FPS)
+const SEND_INTERVAL = 150
 
 const classEmoji = {
   'heart-attack': '💔',
@@ -82,6 +113,7 @@ const referenceImage = computed(() => {
   return `/static/poses/${predictedClass.value}.jpeg`
 })
 
+/* ─── Webcam ─── */
 const toggleStream = async () => {
   if (!streaming.value) {
     try {
@@ -124,7 +156,6 @@ const toggleStream = async () => {
 
 const sendFrames = (timestamp) => {
   if (!streaming.value || !socket || socket.readyState !== WebSocket.OPEN) return
-
   if (timestamp - lastSent >= SEND_INTERVAL) {
     lastSent = timestamp
     canvas.width = 320
@@ -134,8 +165,43 @@ const sendFrames = (timestamp) => {
     const dataUrl = canvas.toDataURL("image/jpeg", 0.5)
     socket.send(JSON.stringify({ image: dataUrl }))
   }
-
   requestAnimationFrame(sendFrames)
+}
+
+/* ─── Upload ─── */
+const handleUpload = async (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+
+  // Show preview
+  const reader = new FileReader()
+  reader.onload = (ev) => {
+    uploadedImage.value = ev.target.result
+  }
+  reader.readAsDataURL(file)
+
+  // Send to backend
+  if (uploading.value) return
+  uploading.value = true
+  error.value = null
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await fetch('/predict', { method: 'POST', body: formData })
+    const data = await res.json()
+    if (data.class) {
+      predictedClass.value = data.class
+      confidence.value = data.confidence
+    } else {
+      predictedClass.value = null
+      error.value = data.error || 'No person detected in the image'
+    }
+  } catch (err) {
+    error.value = 'Failed to classify image. Is the backend running?'
+  } finally {
+    uploading.value = false
+  }
 }
 
 onBeforeUnmount(() => {
@@ -146,50 +212,106 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+@import url('https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;600;700&display=swap');
+
 .camera-predict {
-  max-width: 1100px;
-  margin: 0 auto;
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-}
-
-.main-layout {
   display: flex;
-  gap: 24px;
-  justify-content: center;
-  flex-wrap: wrap;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  font-family: 'Comic Neue', 'Comic Sans MS', cursive, sans-serif;
+  background: transparent;
 }
 
-.panel {
-  background: white;
-  border-radius: 16px;
-  padding: 24px;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+/* ─── Mode tabs ─── */
+.mode-tabs {
+  display: flex;
+  gap: 0;
+  background: rgba(0,0,0,0.4);
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.tab {
   flex: 1;
-  min-width: 340px;
-  max-width: 520px;
-}
-
-.panel h2 {
-  margin: 0 0 16px;
-  font-size: 1.1rem;
-  color: #374151;
+  padding: 14px 20px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-family: inherit;
+  font-size: 1rem;
   font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-.video-container {
-  background: #1a1a2e;
-  border-radius: 12px;
+.tab.active {
+  background: rgba(0,0,0,0.5);
+  color: #fff;
+  border-bottom: 3px solid #2563eb;
+}
+
+.tab:hover {
+  color: #d1d5db;
+}
+
+/* ─── Split layout ─── */
+.split {
+  display: flex;
+  flex: 1;
   overflow: hidden;
-  aspect-ratio: 4/3;
+}
+
+/* ─── Left half ─── */
+.cam-half {
+  flex: 0.45;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  position: relative;
+  overflow: hidden;
+}
+
+.placeholder {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 240px;
+  color: #6b7280;
+}
+
+.placeholder-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.placeholder-icon {
+  font-size: 4rem;
+  opacity: 0.4;
+}
+
+.upload-btn {
+  padding: 14px 36px;
+  background: #2563eb;
+  color: white;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.upload-btn:hover {
+  background: #1d4ed8;
 }
 
 .video-wrapper {
-  width: 100%;
-  height: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .webcam-feed {
@@ -203,24 +325,33 @@ onBeforeUnmount(() => {
   display: none;
 }
 
-.placeholder {
-  color: #6b7280;
-  font-size: 1rem;
+.upload-preview {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
-.controls {
-  margin-top: 12px;
+.uploaded-img {
+  flex: 1;
+  width: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.controls-bar {
+  padding: 16px 24px;
+  text-align: center;
+  background: rgba(0,0,0,0.5);
 }
 
 .btn {
-  padding: 12px 32px;
+  padding: 12px 40px;
   border: none;
   border-radius: 10px;
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
-  width: 100%;
 }
 
 .btn-start {
@@ -240,31 +371,50 @@ onBeforeUnmount(() => {
 }
 
 .error {
-  color: #dc2626;
-  margin-top: 8px;
-  font-size: 0.9rem;
+  color: #ef4444;
+  margin: 8px 24px;
+  text-align: center;
+  font-size: 0.85rem;
 }
 
-/* Classification Result */
-.result-card {
+/* ─── Right half ─── */
+.monkey-half {
+  flex: 1.55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  transition: background 0.4s;
+}
+
+.monkey-half.active {
+  background: transparent;
+}
+
+.monkey-content {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  align-items: center;
+  gap: 24px;
+  padding: 32px;
+  width: 100%;
+  max-width: 640px;
 }
 
 .class-badge {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 20px;
+  gap: 14px;
+  padding: 18px 32px;
   border-radius: 14px;
-  font-size: 1.6rem;
+  font-size: 1.5rem;
   font-weight: 700;
   justify-content: center;
+  width: 100%;
 }
 
 .class-icon {
-  font-size: 2.2rem;
+  font-size: 2rem;
 }
 
 .class-name {
@@ -272,45 +422,40 @@ onBeforeUnmount(() => {
 }
 
 .class-heart-attack {
-  background: #fef2f2;
-  color: #991b1b;
-  border: 2px solid #fecaca;
+  background: #2a1212;
+  color: #fca5a5;
+  border: 2px solid #7f1d1d;
 }
 
 .class-idea {
-  background: #fffbeb;
-  color: #92400e;
-  border: 2px solid #fde68a;
+  background: #2a2412;
+  color: #fde68a;
+  border: 2px solid #7f6d1d;
 }
 
 .class-stand {
-  background: #f0fdf4;
-  color: #166534;
-  border: 2px solid #bbf7d0;
+  background: #122a1a;
+  color: #86efac;
+  border: 2px solid #1d7f3d;
 }
 
 .class-think {
-  background: #f3e8ff;
-  color: #581c87;
-  border: 2px solid #d8b4fe;
+  background: #22123a;
+  color: #d8b4fe;
+  border: 2px solid #5b1d7f;
 }
 
 .confidence-bar {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-.confidence-label {
-  font-size: 0.85rem;
-  color: #6b7280;
-  min-width: 75px;
+  width: 100%;
 }
 
 .bar-track {
   flex: 1;
   height: 10px;
-  background: #e5e7eb;
+  background: #1f2937;
   border-radius: 5px;
   overflow: hidden;
 }
@@ -323,47 +468,45 @@ onBeforeUnmount(() => {
 }
 
 .confidence-value {
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 700;
-  color: #374151;
+  color: #22c55e;
   min-width: 48px;
   text-align: right;
 }
 
-.reference-section {
-  text-align: center;
-}
-
-.ref-label {
-  font-size: 0.85rem;
-  color: #6b7280;
-  margin-bottom: 8px;
-}
-
-.reference-img {
+.monkey-frame {
   width: 100%;
-  max-height: 220px;
-  object-fit: contain;
-  border-radius: 10px;
-  border: 2px solid #e5e7eb;
-  background: #f9fafb;
+  max-width: 600px;
+  aspect-ratio: 1;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 4px solid rgba(255,255,255,0.15);
+  box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+  background: #1a1a2e;
 }
 
-.idle-state {
+.monkey-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.monkey-idle {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 60px 20px;
-  color: #9ca3af;
+  gap: 16px;
+  color: #4b5563;
 }
 
 .idle-icon {
-  font-size: 4rem;
-  margin-bottom: 12px;
+  font-size: 5rem;
 }
 
-.idle-state p {
-  font-size: 1rem;
+.monkey-idle p {
+  font-size: 1.1rem;
+  margin: 0;
 }
 </style>

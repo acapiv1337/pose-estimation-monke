@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import cv2, base64, numpy as np
@@ -69,6 +69,29 @@ def extract_features(results):
                 best_feats = np.array([feats], dtype=np.float32)
 
     return best_feats
+
+
+def predict_image(frame: np.ndarray):
+    """Run YOLO + XGBoost on a single frame and return prediction."""
+    results = pose_model.predict(frame, verbose=False)
+    feats = extract_features(results)
+    if feats is None:
+        return None, 0.0
+    proba = xgb_model.predict_proba(feats)[0]
+    pred_id = int(np.argmax(proba))
+    return CLASS_NAMES[pred_id], float(proba[pred_id])
+
+
+@app.post("/predict")
+async def upload_predict(file: UploadFile = File(...)):
+    """Upload an image and get pose classification."""
+    contents = await file.read()
+    img = Image.open(io.BytesIO(contents)).convert("RGB")
+    frame = np.array(img)
+    predicted_class, confidence = predict_image(frame)
+    if predicted_class:
+        return {"class": predicted_class, "confidence": confidence}
+    return {"class": None, "confidence": 0.0, "error": "No person detected"}
 
 
 @app.websocket("/ws/pose")
