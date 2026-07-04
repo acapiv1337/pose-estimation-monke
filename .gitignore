@@ -4,3 +4,4 @@ __pycache__/
 train test/sendiri.tar
 train test/sendiri.zip
 /model
+.env
