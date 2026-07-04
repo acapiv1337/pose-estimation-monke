@@ -1,0 +1,20 @@
+name: Build and Deploy Monke
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Copy .env file
+        run: cp ~/secrets/pose-estimation-monke.env .env
+
+      - name: Build and deploy
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.server.yml up -d --build --force-recreate
