@@ -7,7 +7,6 @@ services:
       - webnet
 
   frontend:
-    build: ./frontend
     container_name: monke-frontend
     restart: unless-stopped
     depends_on:

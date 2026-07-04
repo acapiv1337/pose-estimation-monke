@@ -1,11 +1,30 @@
 <template>
-  <div id="app">
+  <div id="app" v-if="authenticated">
     <CameraPredict />
   </div>
 </template>
 
 <script setup>
+import { ref, onMounted } from 'vue'
 import CameraPredict from './components/CameraPredict.vue'
+
+const PORTFOLIO_PASSWORD = import.meta.env.VITE_PORTFOLIO_PASSWORD || 'monke2024'
+const authenticated = ref(false)
+
+onMounted(() => {
+  const stored = sessionStorage.getItem('portfolio_auth')
+  if (stored === 'true') {
+    authenticated.value = true
+    return
+  }
+  const input = prompt('Enter password to view this demo:')
+  if (input === PORTFOLIO_PASSWORD) {
+    sessionStorage.setItem('portfolio_auth', 'true')
+    authenticated.value = true
+  } else {
+    document.body.innerHTML = '<pre>{\n  "error": "Access Denied",\n  "message": "Invalid password."\n}</pre>'
+  }
+})
 </script>
 
 <style>

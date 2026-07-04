@@ -6,7 +6,10 @@ services:
     ports:
       - "8001:8001"
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        VITE_PORTFOLIO_PASSWORD: ${VITE_PORTFOLIO_PASSWORD:-monke2024}
     container_name: vue-frontend
     env_file: .env
     ports:

@@ -1,10 +1,14 @@
 # Step 1: Build Vue app
 FROM node:22 AS build-stage
+
+ARG VITE_PORTFOLIO_PASSWORD
+ENV VITE_PORTFOLIO_PASSWORD=${VITE_PORTFOLIO_PASSWORD}
+
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-RUN npm run build
+RUN echo "VITE_PORTFOLIO_PASSWORD=${VITE_PORTFOLIO_PASSWORD}" > .env && npm run build
 
 # Step 2: Serve with Nginx
 FROM nginx:stable-alpine AS production-stage
